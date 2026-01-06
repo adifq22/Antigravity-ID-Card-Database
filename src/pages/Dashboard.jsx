@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, CreditCard, ScanLine, LogOut, Plus, Search, X, BarChart2, ShieldCheck, ShieldAlert, Activity, Trash2, CheckCircle2 } from 'lucide-react'; // Added CheckCircle2
+import { Users, CreditCard, ScanLine, LogOut, Plus, Search, X, BarChart2, ShieldCheck, ShieldAlert, Activity, Trash2, CheckCircle2, Download, Edit2 } from 'lucide-react'; // Added CheckCircle2, Download, Edit2
 import { Link, useNavigate } from 'react-router-dom';
 import { MOCK_EMPLOYEES, MOCK_LOGS } from '../data/mockData';
 import { api } from '../services/api';
@@ -50,6 +50,14 @@ const Dashboard = () => {
     const [scannedCardId, setScannedCardId] = useState('');
     const [editingEmployee, setEditingEmployee] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
+
+    // Edit Attendance State
+    const [showEditAttendanceModal, setShowEditAttendanceModal] = useState(false);
+    const [attendanceEditData, setAttendanceEditData] = useState({
+        employeeId: '',
+        date: '',
+        status: 'Present' // Present, Absent
+    });
 
     // Simulation State
     const [simKeycard, setSimKeycard] = useState('');
@@ -182,8 +190,9 @@ const Dashboard = () => {
             if (employee && employee.status === 'Active') {
                 // Record Attendance Logic
                 const now = new Date();
-                // FIX: Use local date string (YYYY-MM-DD) instead of UTC to fix timezone issues
-                const today = now.toLocaleDateString('en-CA');
+                // FIX: Manual construction to guarantee YYYY-MM-DD format regardless of locale
+                const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
                 const hours = now.getHours();
                 const minutes = now.getMinutes();
                 const msm = (hours * 60) + minutes; // Minutes Since Midnight
@@ -336,6 +345,101 @@ const Dashboard = () => {
             // Always update local state for immediate feedback
             setEmployees(prev => prev.filter(emp => emp.id !== id));
         }
+    };
+
+    // --- ENHANCEMENT: EXPORT & EDIT ATTENDANCE ---
+
+    const handleExportCSV = (userOnly = false) => {
+        // Headers
+        const headers = ['ID Karyawan,Nama Lengkap,Divisi,Tanggal,Status'];
+
+        // Data Rows
+        let csvRows = [];
+
+        const targetEmployees = userOnly
+            ? employees.filter(e => e.id === currentUser?.id)
+            : employees;
+
+        targetEmployees.forEach(emp => {
+            const safeName = emp.name.replace(/,/g, ' '); // Handle commas in names
+
+            // 1. Export Attendance (Hadir)
+            if (emp.attendance) {
+                emp.attendance.forEach(date => {
+                    csvRows.push(`${emp.id},${safeName},${emp.division},${date},Hadir`);
+                });
+            }
+
+            // 3. Export Overtime
+            if (emp.overtimeRecords) {
+                emp.overtimeRecords.forEach(date => {
+                    csvRows.push(`${emp.id},${safeName},${emp.division},${date},Lembur`);
+                });
+            }
+        });
+
+        if (csvRows.length === 0) {
+            alert('Tidak ada data untuk diexport.');
+            return;
+        }
+
+        const csvString = [headers, ...csvRows].join('\n');
+        const blob = new Blob([csvString], { type: 'text/csv' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.setAttribute('hidden', '');
+        a.setAttribute('href', url);
+        a.setAttribute('download', `attendance_report_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    };
+
+    const openEditAttendance = (employee) => {
+        setAttendanceEditData({
+            employeeId: employee.id,
+            date: new Date().toLocaleDateString('en-CA'), // Default today YYYY-MM-DD
+            status: 'Present'
+        });
+        setShowEditAttendanceModal(true);
+    };
+
+    const handleSaveAttendanceEdit = (e) => {
+        e.preventDefault();
+        const { employeeId, date, status } = attendanceEditData;
+
+        // Validation
+        if (!date) {
+            alert('Pilih tanggal!');
+            return;
+        }
+
+        setEmployees(prev => prev.map(emp => {
+            if (emp.id !== employeeId) return emp;
+
+            // Shallow copies
+            let newAttendance = [...(emp.attendance || [])];
+            let newLate = [...(emp.lateRecords || [])];
+
+            if (status === 'Present') {
+                if (!newAttendance.includes(date)) {
+                    newAttendance.push(date);
+                }
+            } else {
+                // Remove (Alpa/Clear)
+                newAttendance = newAttendance.filter(d => d !== date);
+                newLate = newLate.filter(d => d !== date);
+            }
+
+            return {
+                ...emp,
+                attendance: newAttendance,
+                lateRecords: newLate
+            };
+        }));
+
+        alert('Data Absensi Berhasil Diupdate!');
+        setShowEditAttendanceModal(false);
     };
 
     // Step 1: Form Submit -> Move to Scan
@@ -856,9 +960,16 @@ const Dashboard = () => {
                                 </div>
                             </div>
 
-                            {/* Header for Table + Add Button */}
+                            {/* Header for Table + Add Button + Export */}
                             {activeTab === 'employees' && isAuthorized && (
-                                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginBottom: '1rem' }}>
+                                    <button
+                                        className="btn"
+                                        onClick={() => handleExportCSV(false)}
+                                        style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(16, 185, 129, 0.2)', color: '#10b981', border: '1px solid #10b981' }}
+                                    >
+                                        <Download size={18} /> Export Excel
+                                    </button>
                                     <button
                                         className="btn btn-primary"
                                         onClick={openAddModal}
@@ -918,6 +1029,9 @@ const Dashboard = () => {
                                                     </td>
                                                     {isAuthorized && (
                                                         <td style={{ padding: '1rem', textAlign: 'right', display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                                                            <button onClick={() => openEditAttendance(emp)} style={{ background: 'rgba(234, 179, 8, 0.2)', border: '1px solid rgba(234, 179, 8, 0.5)', borderRadius: '6px', color: '#eab308', cursor: 'pointer', padding: '0.5rem' }} title="Edit Absensi">
+                                                                <Edit2 size={18} />
+                                                            </button>
                                                             <button onClick={() => openEditCardModal(emp)} style={{ background: 'rgba(56, 189, 248, 0.2)', border: '1px solid rgba(56, 189, 248, 0.5)', borderRadius: '6px', color: '#38bdf8', cursor: 'pointer', padding: '0.5rem' }} title="Update Keycard">
                                                                 <CreditCard size={18} />
                                                             </button>
@@ -979,6 +1093,15 @@ const Dashboard = () => {
                             <p className="text-muted" style={{ marginBottom: '2rem' }}>
                                 Kehadiran Anda tercatat otomatis saat melakukan scanning kartu di Security Check.
                             </p>
+                            <div style={{ marginBottom: '1rem' }}>
+                                <button
+                                    className="btn"
+                                    onClick={() => handleExportCSV(true)}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(16, 185, 129, 0.2)', color: '#10b981', border: '1px solid #10b981' }}
+                                >
+                                    <Download size={18} /> Export Data Saya
+                                </button>
+                            </div>
 
                             <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '2rem', alignItems: 'start' }}>
                                 {/* Left Column: Calendar */}
@@ -990,7 +1113,10 @@ const Dashboard = () => {
                                                 <div style={{ width: '12px', height: '12px', background: '#10b981', borderRadius: '2px' }}></div> Hadir
                                             </div>
                                             <div className="flex items-center gap-sm">
-                                                <div style={{ width: '12px', height: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '2px' }}></div> Absen
+                                                <div style={{ width: '12px', height: '12px', background: '#ef4444', borderRadius: '2px' }}></div> Alpha
+                                            </div>
+                                            <div className="flex items-center gap-sm">
+                                                <div style={{ width: '12px', height: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '2px' }}></div> Absen/Future
                                             </div>
                                         </div>
                                     </div>
@@ -1023,17 +1149,34 @@ const Dashboard = () => {
                                             // Highlight "Today" (Jan 3rd in simulation)
                                             const isToday = day === 3;
 
+                                            // Determine Absent Status (Red)
+                                            // Logic: If date is in past (< today), NOT weekend, and NOT Present -> Red
+                                            const todayDate = new Date();
+                                            const currentCheckDate = new Date(dateStr);
+
+                                            // Reset times for comparison
+                                            const todayMidnight = new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate());
+                                            const checkMidnight = new Date(currentCheckDate.getFullYear(), currentCheckDate.getMonth(), currentCheckDate.getDate());
+
+                                            const isPast = checkMidnight < todayMidnight;
+                                            const isWeekend = day % 7 === 0 || day % 7 === 6; // Simple check based on Jan 2026. Jan 1 is Thu.
+                                            // Better weekend check:
+                                            const checkDayOfWeek = currentCheckDate.getDay();
+                                            const isWeekendReal = checkDayOfWeek === 0 || checkDayOfWeek === 6;
+
+                                            const isAbsent = isPast && !isWeekendReal && !isPresent && !isOvertime;
+
                                             return (
                                                 <div key={day} style={{
                                                     aspectRatio: '1/1',
                                                     display: 'flex',
                                                     alignItems: 'center',
                                                     justifyContent: 'center',
-                                                    background: isOvertime ? 'rgba(59, 130, 246, 0.3)' : (isPresent ? (isLate ? '#eab308' : '#10b981') : 'rgba(255,255,255,0.05)'),
+                                                    background: isOvertime ? 'rgba(59, 130, 246, 0.3)' : (isPresent ? (isLate ? '#eab308' : '#10b981') : (isAbsent ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255,255,255,0.05)')),
                                                     borderRadius: '8px',
-                                                    color: (isPresent || isOvertime) ? '#000' : 'var(--color-text)',
-                                                    fontWeight: isPresent || isToday || isOvertime ? 'bold' : 'normal',
-                                                    border: isToday ? '2px solid var(--color-primary)' : 'none',
+                                                    color: (isPresent || isOvertime || isAbsent) ? (isAbsent ? '#f87171' : '#000') : 'var(--color-text)',
+                                                    fontWeight: isPresent || isToday || isOvertime || isAbsent ? 'bold' : 'normal',
+                                                    border: isToday ? '2px solid var(--color-primary)' : (isAbsent ? '1px solid rgba(239, 68, 68, 0.4)' : 'none'),
                                                     position: 'relative',
                                                     cursor: 'default',
                                                     transition: 'all 0.3s ease',
@@ -1050,6 +1193,7 @@ const Dashboard = () => {
                                                         <>
                                                             {day}
                                                             {isPresent && <CheckCircle2 size={14} style={{ position: 'absolute', bottom: '4px', right: '4px', opacity: 0.6 }} />}
+                                                            {isAbsent && <X size={14} style={{ position: 'absolute', bottom: '4px', right: '4px', opacity: 0.6, color: '#f87171' }} />}
                                                         </>
                                                     )}
                                                 </div>
@@ -1299,6 +1443,56 @@ const Dashboard = () => {
                         </div>
                     )
                 }
+
+                {/* EDIT ATTENDANCE MODAL */}
+                {showEditAttendanceModal && (
+                    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, backdropFilter: 'blur(10px)' }}>
+                        <div className="glass-card animate-fade-in" style={{
+                            padding: '2rem',
+                            maxWidth: '400px',
+                            width: '100%',
+                            border: '1px solid var(--color-border)',
+                            background: '#1a1a1a',
+                            color: '#fff'
+                        }}>
+                            <div className="flex justify-between items-center mb-lg">
+                                <h3 style={{ margin: 0 }}>Edit Absensi</h3>
+                                <button onClick={() => setShowEditAttendanceModal(false)} style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer' }}><X size={24} /></button>
+                            </div>
+
+                            <form onSubmit={handleSaveAttendanceEdit} className="flex flex-col gap-md">
+                                <div className="form-group">
+                                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: '#ccc' }}>Employee ID</label>
+                                    <input type="text" value={attendanceEditData.employeeId} disabled style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid #333', background: '#333', color: '#aaa' }} />
+                                </div>
+                                <div className="form-group">
+                                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: '#ccc' }}>Tanggal (YYYY-MM-DD)</label>
+                                    <input
+                                        type="date"
+                                        value={attendanceEditData.date}
+                                        onChange={e => setAttendanceEditData({ ...attendanceEditData, date: e.target.value })}
+                                        required
+                                        style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid #555', background: '#fff', color: '#000' }}
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: '#ccc' }}>Status</label>
+                                    <select
+                                        value={attendanceEditData.status}
+                                        onChange={e => setAttendanceEditData({ ...attendanceEditData, status: e.target.value })}
+                                        style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid #555', background: '#fff', color: '#000' }}
+                                    >
+                                        <option value="Present">Hadir (Present)</option>
+                                        <option value="Absent">Tidak Hadir / Clear (Alpha)</option>
+                                    </select>
+                                </div>
+                                <button type="submit" className="btn btn-primary" style={{ marginTop: '1rem', width: '100%' }}>
+                                    Simpan Perubahan
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                )}
 
             </main>
         </div>
