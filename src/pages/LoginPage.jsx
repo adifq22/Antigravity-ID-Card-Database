@@ -2,26 +2,51 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { UserX } from 'lucide-react';
 import { MOCK_EMPLOYEES } from '../data/mockData';
+import { api } from '../services/api';
 
 const LoginPage = () => {
     const [employeeId, setEmployeeId] = useState('');
     const [showError, setShowError] = useState(false);
     const navigate = useNavigate();
 
-    const handleLogin = (e) => {
+    const handleLogin = async (e) => {
         e.preventDefault();
 
-        // Check if employee exists (from LocalStorage or Mock)
-        const savedData = localStorage.getItem('kadin_employees');
-        let employeeList = MOCK_EMPLOYEES;
+        let employeeList = [];
 
+        // 1. Try API (Online)
         try {
-            if (savedData) {
-                employeeList = JSON.parse(savedData);
+            const apiData = await api.getEmployees();
+            if (apiData) {
+                employeeList = apiData;
             }
-        } catch (err) {
-            console.error("Error loading saved data", err);
-            // Fallback to mock is already set
+        } catch (e) {
+            console.warn("API Offline, using local data");
+        }
+
+        // 2. Try LocalStorage V1 (New Standard)
+        if (employeeList.length === 0) {
+            const v1 = localStorage.getItem('kadin_integrated_db_v1');
+            if (v1) {
+                try {
+                    employeeList = JSON.parse(v1);
+                } catch (e) { console.error("V1 Data Corrupt"); }
+            }
+        }
+
+        // 3. Try LocalStorage (Legacy)
+        if (employeeList.length === 0) {
+            const savedData = localStorage.getItem('kadin_employees');
+            if (savedData) {
+                try {
+                    employeeList = JSON.parse(savedData);
+                } catch (e) { console.error("Legacy Data Corrupt"); }
+            }
+        }
+
+        // 4. Fallback to Mock
+        if (employeeList.length === 0) {
+            employeeList = MOCK_EMPLOYEES;
         }
 
         const isValid = employeeList.find(emp => emp.id === employeeId);
@@ -37,12 +62,35 @@ const LoginPage = () => {
     return (
         <div style={{
             minHeight: '100vh',
-            background: 'radial-gradient(circle at center, #1e293b 0%, #0f172a 100%)',
+            background: 'radial-gradient(circle at 50% 50%, rgba(212, 175, 55, 0.15), rgba(255, 255, 255, 1) 70%), linear-gradient(135deg, #fff 0%, #FDFBF7 100%)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            padding: '1rem'
+            padding: '1rem',
+            position: 'relative',
+            overflow: 'hidden'
         }}>
+            {/* Glowing Effect Background */}
+            <div style={{
+                position: 'absolute',
+                top: '-10%',
+                left: '-10%',
+                width: '40%',
+                height: '40%',
+                background: 'radial-gradient(circle, rgba(212, 175, 55, 0.1) 0%, transparent 70%)',
+                filter: 'blur(50px)',
+                zIndex: 0
+            }}></div>
+            <div style={{
+                position: 'absolute',
+                bottom: '-10%',
+                right: '-10%',
+                width: '50%',
+                height: '50%',
+                background: 'radial-gradient(circle, rgba(243, 210, 80, 0.1) 0%, transparent 70%)',
+                filter: 'blur(60px)',
+                zIndex: 0
+            }}></div>
 
             {/* Login Card */}
             <div className="glass-card animate-fade-in" style={{
@@ -70,10 +118,10 @@ const LoginPage = () => {
                             style={{
                                 width: '100%',
                                 padding: '0.75rem',
-                                background: 'rgba(0,0,0,0.3)',
+                                background: 'var(--color-input-bg)',
                                 border: '1px solid var(--color-border)',
                                 borderRadius: '8px',
-                                color: '#fff',
+                                color: 'var(--color-text)',
                                 outline: 'none',
                                 boxSizing: 'border-box'
                             }}
@@ -86,7 +134,7 @@ const LoginPage = () => {
                 </form>
 
                 <div className="text-center mt-lg">
-                    <button onClick={() => navigate('/')} className="" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.9rem', color: '#fff' }}>
+                    <button onClick={() => navigate('/')} className="" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.9rem', color: 'var(--color-text-muted)' }}>
                         &larr; Back to Landing Page
                     </button>
                 </div>

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Users, CreditCard, ScanLine, LogOut, Plus, Search, X, BarChart2, ShieldCheck, ShieldAlert, Activity, Trash2, CheckCircle2 } from 'lucide-react'; // Added CheckCircle2
 import { Link, useNavigate } from 'react-router-dom';
 import { MOCK_EMPLOYEES, MOCK_LOGS } from '../data/mockData';
+import { api } from '../services/api';
 
 const Dashboard = () => {
     const navigate = useNavigate();
@@ -10,7 +11,8 @@ const Dashboard = () => {
     // Data State
     const [employees, setEmployees] = useState(() => {
         try {
-            const saved = localStorage.getItem('kadin_employees');
+            // [DATABASE DECK] Main Employee Database Storage
+            const saved = localStorage.getItem('kadin_integrated_db_v1');
             if (saved) {
                 const parsed = JSON.parse(saved);
                 // Ensure all employees have required fields
@@ -24,7 +26,7 @@ const Dashboard = () => {
             return MOCK_EMPLOYEES;
         } catch (e) {
             console.error("LocalStorage Corrupt", e);
-            localStorage.removeItem('kadin_employees');
+            localStorage.removeItem('kadin_integrated_db_v1');
             return MOCK_EMPLOYEES;
         }
     });
@@ -60,25 +62,118 @@ const Dashboard = () => {
             setCurrentUser(JSON.parse(userStr));
         }
 
-        // Save Mock Data if empty
-        if (!localStorage.getItem('kadin_employees')) {
-            localStorage.setItem('kadin_employees', JSON.stringify(MOCK_EMPLOYEES));
+        // Initialize Database Deck if empty
+        if (!localStorage.getItem('kadin_integrated_db_v1')) {
+            localStorage.setItem('kadin_integrated_db_v1', JSON.stringify(MOCK_EMPLOYEES));
         }
-    }, []);
+
+        // FETCH FROM API
+        const fetchData = async () => {
+            const data = await api.getEmployees();
+            if (data) {
+                // Ensure fields exist
+                let processed = data.map(emp => ({
+                    ...emp,
+                    attendance: emp.attendance || [],
+                    lateRecords: emp.lateRecords || [],
+                    overtimeRecords: emp.overtimeRecords || []
+                }));
+
+                setEmployees(processed);
+                // Also update local storage as backup
+                localStorage.setItem('kadin_integrated_db_v1', JSON.stringify(processed));
+            }
+        };
+        if (currentUser) {
+            fetchData();
+        }
+    }, [currentUser]);
 
     // Save employees to local storage whenever it changes
     useEffect(() => {
-        localStorage.setItem('kadin_employees', JSON.stringify(employees));
+        localStorage.setItem('kadin_integrated_db_v1', JSON.stringify(employees));
     }, [employees]);
 
     // PERMISSIONS: HR (SDM) or IT (Teknologi Informasi)
     const isAuthorized = ['SDM', 'Teknologi Informasi', 'IT'].includes(currentUser?.division);
 
-    const handleSimulateScan = (e) => {
+    const handleSimulateScan = async (e) => {
         e.preventDefault();
+        e.stopPropagation();
         setSimResult(null);
 
-        // Simulate processing delay
+        // RBAC Check for Scan - UNIVERSAL RESTRICTION (Even for Admins)
+        if (simKeycard !== currentUser?.keycard) {
+            const currentTime = new Date().toLocaleString('id-ID');
+            setSimResult({
+                type: 'error',
+                message: 'Anda Salah Melakukan Scan Pada Kartu Anda Sendiri!',
+                detail: null
+            });
+            // Log attempt
+            setSecurityAlerts(prev => [{
+                id: Date.now(),
+                timestamp: currentTime,
+                keycardAttempt: simKeycard,
+                type: 'UNAUTHORIZED_SCAN',
+                status: 'DENIED',
+                message: `${currentUser?.name} ini salah menginput/scan kartu yang bukan miliknya`
+            }, ...(prev || [])]);
+
+            // Add to Access Logs so it shows up in Security Alerts filter
+            setAccessLogs(prev => [{
+                id: Date.now(),
+                timestamp: currentTime,
+                employee: currentUser?.name || 'Self-Unauthorized',
+                keycard: simKeycard,
+                status: 'DENIED',
+                location: 'Main Entrance'
+            }, ...(Array.isArray(prev) ? prev : [])]);
+
+            return;
+        }
+
+        // 1. TRY ONLINE API SCAN
+        try {
+            const result = await api.scanCard(simKeycard);
+            if (result) {
+                // Success or Known Failure from Server
+                setSimResult({
+                    type: result.type || 'info', // success, info, warning, error
+                    message: result.message,
+                    detail: result.employee
+                });
+
+                // Add to Access Logs (Visual only)
+                const currentTime = new Date().toLocaleString('id-ID');
+                setAccessLogs(prev => [{
+                    id: Date.now(),
+                    timestamp: currentTime,
+                    employee: result.employee ? result.employee.name : 'Unknown',
+                    keycard: simKeycard,
+                    status: result.type === 'error' ? 'DENIED' : (result.type === 'info' && result.message.includes('Lembur') ? 'Overtime' : 'Granted'),
+                    location: 'Main Entrance'
+                }, ...prev]);
+
+                // If error/denied, add to security alerts
+                if (result.type === 'error') {
+                    setSecurityAlerts(prev => [{
+                        id: Date.now(),
+                        timestamp: currentTime,
+                        keycardAttempt: simKeycard,
+                        type: 'Access Denied',
+                        status: 'DENIED'
+                    }, ...prev]);
+                }
+
+                setSimKeycard('');
+                return; // Exit if API worked
+            }
+        } catch (error) {
+            console.warn("Offline Scan Fallback Active", error);
+        }
+
+        // 2. OFFLINE FALLBACK (Local State Logic)
         setTimeout(() => {
             // Check against current state, not just mock file
             const employee = employees.find(emp => emp.keycard === simKeycard);
@@ -117,8 +212,18 @@ const Dashboard = () => {
                     // Weekend overtime
                     message = 'Lembur Tercatat - Terima kasih atas dedikasi Anda!';
                     type = 'info';
+                    logStatus = 'Overtime';
 
-                    // Perbaikan error .includes pada overtimeRecords
+                    if (!overtimeRecords.includes(today)) {
+                        updatedEmployee.overtimeRecords = [...overtimeRecords, today];
+                        setEmployees(prev => prev.map(e => e.id === employee.id ? { ...e, ...updatedEmployee } : e));
+                    }
+                } else if (msm >= 1020) { // After 17:00 (5 PM)
+                    // Weekday Overtime / Late Checkout
+                    message = 'Lembur Hari Kerja Tercatat - Kerja bagus!';
+                    type = 'info';
+                    logStatus = 'Overtime';
+
                     if (!overtimeRecords.includes(today)) {
                         updatedEmployee.overtimeRecords = [...overtimeRecords, today];
                         setEmployees(prev => prev.map(e => e.id === employee.id ? { ...e, ...updatedEmployee } : e));
@@ -129,14 +234,17 @@ const Dashboard = () => {
                         message = `Anda sukses Hadir Pada Jam ${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
                         type = 'success';
                         isLate = false;
+                        logStatus = 'Present';
                     } else if (msm >= 516 && msm <= 1019) {
                         message = 'Anda Terlambat Hari ini, Tingkatkan Kualitas Performa Anda.';
                         type = 'warning';
                         isLate = true;
+                        logStatus = 'Late';
                     } else {
                         message = 'Anda Berhasil Checkout Hari Ini';
                         type = 'info';
                         isLate = false;
+                        logStatus = 'Checkout';
                     }
 
                     // Perbaikan error .includes pada attendance dan lateRecords
@@ -204,9 +312,9 @@ const Dashboard = () => {
                     return [{
                         id: Date.now(),
                         timestamp: currentTime,
-                        employee: updatedEmployee.name || 'Unknown',
+                        employee: 'Unknown',
                         keycard: simKeycard || 'Unknown',
-                        status: logStatus,
+                        status: 'DENIED',
                         location: 'Main Entrance'
                     }, ...currentLogs];
                 });
@@ -217,15 +325,25 @@ const Dashboard = () => {
                     detail: null
                 });
             }
+            // Auto-clear the input after processing
+            setSimKeycard('');
         }, 800);
     };
 
-    const handleDeleteEmployee = (id) => {
+    const handleDeleteEmployee = async (id) => {
         if (id === currentUser?.id) {
             alert('Anda tidak dapat menghapus akun sendiri!');
             return;
         }
         if (window.confirm(`Hapus data karyawan ${id}?`)) {
+            // TRY API
+            try {
+                await api.deleteEmployee(id);
+            } catch (err) {
+                console.warn("Offline delete fallback");
+            }
+
+            // Always update local state for immediate feedback
             setEmployees(prev => prev.filter(emp => emp.id !== id));
         }
     };
@@ -237,7 +355,7 @@ const Dashboard = () => {
     };
 
     // Step 2: Scan Logic (Add or Update)
-    const handleScanSubmit = (e) => {
+    const handleScanSubmit = async (e) => {
         e.preventDefault();
         if (!scannedCardId) return;
 
@@ -254,12 +372,26 @@ const Dashboard = () => {
 
         if (editingEmployee) {
             // UPDATE EXISTING
+            const updatedEmployee = { ...editingEmployee, keycard: scannedCardId, status: formData.status };
+
+            // TRY API
+            try {
+                await api.updateEmployee(updatedEmployee.id, updatedEmployee);
+            } catch (err) {
+                console.warn("Offline update fallback");
+            }
+
             setEmployees(prev => prev.map(emp =>
                 emp.id === editingEmployee.id
-                    ? { ...emp, keycard: scannedCardId, status: formData.status }
+                    ? { ...emp, ...updatedEmployee }
                     : emp
             ));
-            alert(`Update Berhasil!\nData ${editingEmployee.name} telah diperbarui.`);
+
+            // Critical: Update the editingEmployee state too so the UI reflects the change immediately if not closed
+            setEditingEmployee(updatedEmployee);
+
+            alert(`Update Berhasil!\nData ${editingEmployee.name} telah diperbarui menjadi Keycard: ${scannedCardId}`);
+            resetModal(); // Close modal after success
         } else {
             // ADD NEW
             const maxId = employees.reduce((max, emp) => {
@@ -272,8 +404,18 @@ const Dashboard = () => {
             const newEmployee = {
                 id: nextId,
                 ...formData,
-                keycard: scannedCardId
+                keycard: scannedCardId,
+                attendance: [],
+                lateRecords: [],
+                overtimeRecords: []
             };
+
+            // TRY API
+            try {
+                await api.createEmployee(newEmployee);
+            } catch (err) {
+                console.warn("Offline create fallback");
+            }
 
             setEmployees(prev => [...prev, newEmployee]);
             alert(`Karyawan berhasil ditambahkan!\nNama: ${newEmployee.name}\nID: ${newEmployee.id}\nCard: ${newEmployee.keycard}`);
@@ -322,57 +464,103 @@ const Dashboard = () => {
     };
 
     return (
-        <div className="flex" style={{ minHeight: '100vh', background: 'var(--color-bg)' }}>
+        <div className="flex text-light page-transition" style={{ height: '100vh', overflow: 'hidden', background: 'var(--color-bg)', position: 'relative' }}>
+            {/* Background Decorative Elements */}
+            <div style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                zIndex: 0,
+                pointerEvents: 'none',
+                overflow: 'hidden'
+            }}>
+                <div style={{
+                    position: 'absolute',
+                    top: '-15%',
+                    right: '-5%',
+                    width: '400px',
+                    height: '400px',
+                    borderRadius: '50%',
+                    background: 'radial-gradient(circle, rgba(212, 175, 55, 0.08) 0%, transparent 70%)',
+                    filter: 'blur(40px)'
+                }}></div>
+                <div style={{
+                    position: 'absolute',
+                    bottom: '5%',
+                    left: '20%',
+                    width: '300px',
+                    height: '300px',
+                    borderRadius: '50%',
+                    background: 'radial-gradient(circle, rgba(212, 175, 55, 0.05) 0%, transparent 70%)',
+                    filter: 'blur(30px)'
+                }}></div>
+            </div>
             {/* Sidebar */}
-            <aside style={{ width: '260px', background: '#1e293b', borderRight: '1px solid rgba(255,255,255,0.1)', padding: '2rem 1rem', display: 'flex', flexDirection: 'column' }}>
+            <aside style={{ width: '260px', background: 'var(--color-sidebar-bg)', borderRight: '1px solid var(--color-border)', padding: '2rem 1rem', display: 'flex', flexDirection: 'column' }}>
                 <div style={{ marginBottom: '3rem', paddingLeft: '1rem', textAlign: 'center' }}>
                     <img src="/kadin-logo.png" alt="Logo" style={{ width: '80px', marginBottom: '1rem', filter: 'drop-shadow(0 0 15px rgba(212,175,55,0.3))' }} />
                     <h2 className="text-gold" style={{ fontFamily: 'var(--font-heading)', fontSize: '1.5rem', margin: 0, letterSpacing: '0.05em' }}>KADIN INDONESIA</h2>
                     <span className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Sinergi Membangun Negeri</span>
                 </div>
 
-                <nav className="flex-col gap-md" style={{ display: 'flex', gap: '0.5rem' }}>
+                <nav className="flex-col gap-sm" style={{ display: 'flex' }}>
                     <button
-                        className={`btn ${activeTab === 'employees' ? 'btn-primary' : ''} `}
-                        style={{ justifyContent: 'flex-start', background: activeTab === 'employees' ? '' : 'transparent', border: 'none', textAlign: 'left', color: activeTab === 'employees' ? '#000' : '#fff', fontWeight: 'bold' }}
+                        className={`btn sidebar-link ${activeTab === 'employees' ? 'active' : ''}`}
+                        style={{ justifyContent: 'flex-start', background: 'transparent', border: 'none', textAlign: 'left', fontWeight: 'bold' }}
                         onClick={() => setActiveTab('employees')}
                     >
-                        <Users size={20} style={{ marginRight: '10px' }} /> Data Karyawan
+                        <Users size={20} style={{ marginRight: '10px' }} /> {isAuthorized ? 'Manajemen Karyawan' : 'Profil Saya'}
                     </button>
 
                     <button
-                        className={`btn ${activeTab === 'logs' ? 'btn-primary' : ''} `}
-                        style={{ justifyContent: 'flex-start', background: activeTab === 'logs' ? '' : 'transparent', border: 'none', textAlign: 'left', color: activeTab === 'logs' ? '#000' : '#fff', fontWeight: 'bold' }}
+                        className={`btn sidebar-link ${activeTab === 'logs' ? 'active' : ''}`}
+                        style={{ justifyContent: 'flex-start', background: 'transparent', border: 'none', textAlign: 'left', fontWeight: 'bold' }}
                         onClick={() => setActiveTab('logs')}
                     >
                         <CreditCard size={20} style={{ marginRight: '10px' }} /> Access Logs
                     </button>
 
                     <button
-                        className={`btn ${activeTab === 'simulation' ? 'btn-primary' : ''} `}
-                        style={{ justifyContent: 'flex-start', background: activeTab === 'simulation' ? '' : 'transparent', border: 'none', textAlign: 'left', color: activeTab === 'simulation' ? '#000' : '#fff', fontWeight: 'bold' }}
+                        className={`btn sidebar-link ${activeTab === 'simulation' ? 'active' : ''}`}
+                        style={{ justifyContent: 'flex-start', background: 'transparent', border: 'none', textAlign: 'left', fontWeight: 'bold' }}
                         onClick={() => setActiveTab('simulation')}
                     >
                         <ScanLine size={20} style={{ marginRight: '10px' }} /> Security Check
                     </button>
 
                     <button
-                        className={`btn ${activeTab === 'performance' ? 'btn-primary' : ''} `}
-                        style={{ justifyContent: 'flex-start', background: activeTab === 'performance' ? '' : 'transparent', border: 'none', textAlign: 'left', color: activeTab === 'performance' ? '#000' : '#fff', fontWeight: 'bold' }}
+                        className={`btn sidebar-link ${activeTab === 'performance' ? 'active' : ''}`}
+                        style={{ justifyContent: 'flex-start', background: 'transparent', border: 'none', textAlign: 'left', fontWeight: 'bold' }}
                         onClick={() => setActiveTab('performance')}
                     >
                         <BarChart2 size={20} style={{ marginRight: '10px' }} /> Grafik Performa
                     </button>
                 </nav>
 
-                <div style={{ marginTop: 'auto' }}>
+                <div style={{ marginTop: 'auto', borderTop: '1px solid var(--color-border)', padding: '1rem 0' }}>
+                    {currentUser && (
+                        <div className="flex items-center gap-md" style={{ padding: '0 1rem 1rem' }}>
+                            <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'var(--color-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', overflow: 'hidden', color: '#000' }}>
+                                {currentUser.photo ? (
+                                    <img src={currentUser.photo} alt={currentUser.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }} />
+                                ) : currentUser.name.charAt(0)}
+                                <span style={{ display: 'none' }}>{currentUser.name.charAt(0)}</span>
+                            </div>
+                            <div style={{ overflow: 'hidden' }}>
+                                <h4 style={{ margin: 0, fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--color-heading)' }}>{currentUser.name}</h4>
+                                <span className="text-muted" style={{ fontSize: '0.75rem' }}>{currentUser.position}</span>
+                            </div>
+                        </div>
+                    )}
                     <button
                         onClick={() => {
                             localStorage.removeItem('currentUser');
                             navigate('/login');
                         }}
                         className="btn"
-                        style={{ justifyContent: 'flex-start', width: '100%', border: 'none', background: 'transparent', color: '#fff', fontWeight: 'bold' }}
+                        style={{ justifyContent: 'flex-start', width: '100%', border: 'none', background: 'transparent', color: 'var(--color-text)', fontWeight: 'bold', paddingLeft: '1rem' }}
                     >
                         <LogOut size={20} style={{ marginRight: '10px' }} /> Logout
                     </button>
@@ -382,7 +570,7 @@ const Dashboard = () => {
             {/* Main Content */}
             <main style={{ flex: 1, overflowY: 'auto', position: 'relative' }}>
                 {/* Top Header */}
-                <header className="flex justify-between items-center" style={{ padding: '1rem 2rem', borderBottom: '1px solid rgba(255,255,255,0.1)', background: '#1e293b' }}>
+                <header className="flex justify-between items-center glass-card" style={{ padding: '1rem 2rem', borderRadius: '0 0 0 20px', margin: '0 0 1rem 1rem', borderTop: 'none', borderRight: 'none' }}>
                     <h2 style={{ fontSize: '1.25rem', margin: 0 }}>
                         {activeTab === 'employees' && 'Manajemen Karyawan'}
                         {activeTab === 'logs' && 'Log Akses Real-time'}
@@ -390,22 +578,23 @@ const Dashboard = () => {
                         {activeTab === 'performance' && 'Grafik Performa Karyawan'}
                     </h2>
                     <div className="flex items-center gap-md">
-                        <div className="flex items-center" style={{ background: '#0f172a', padding: '0.5rem 1rem', borderRadius: '8px', border: '1px solid #334155' }}>
+                        <div className="flex items-center" style={{ background: 'var(--color-card-bg)', padding: '0.5rem 1rem', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
                             <Search size={18} className="text-muted" />
                             <input
                                 type="text"
                                 placeholder="Search data..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                style={{ background: 'transparent', border: 'none', color: '#fff', marginLeft: '10px', outline: 'none' }}
+                                style={{ background: 'transparent', border: 'none', color: 'var(--color-text)', marginLeft: '10px', outline: 'none' }}
                             />
                         </div>
                         {currentUser && (
-                            <div
+                            <button
                                 onClick={() => {
                                     setActiveTab('logs');
                                     setLogFilter('security');
                                 }}
+                                className="btn"
                                 style={{
                                     display: 'flex',
                                     alignItems: 'center',
@@ -422,12 +611,17 @@ const Dashboard = () => {
                             >
                                 <ShieldAlert size={20} style={{ color: '#dc2626' }} />
                                 <span style={{ fontSize: '0.9rem', color: '#dc2626', fontWeight: 'bold' }}>{securityAlerts.length} Alerts</span>
-                            </div>
+                            </button>
                         )}
                         {currentUser && (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                <div style={{ width: '35px', height: '35px', borderRadius: '50%', background: 'var(--color-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
-                                    {currentUser.name.charAt(0)}
+                                <div style={{ width: '35px', height: '35px', borderRadius: '50%', background: 'var(--color-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', overflow: 'hidden', color: '#000' }}>
+                                    {currentUser.photo ? (
+                                        <img src={currentUser.photo} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }} />
+                                    ) : (
+                                        currentUser.name.charAt(0)
+                                    )}
+                                    <span style={{ display: 'none' }}>{currentUser.name.charAt(0)}</span>
                                 </div>
                                 <span style={{ fontSize: '0.9rem' }}>{currentUser.name}</span>
                             </div>
@@ -442,15 +636,15 @@ const Dashboard = () => {
                     {activeTab === 'logs' && (
                         <div className="animate-fade-in">
                             <div className="flex justify-between items-center mb-lg">
-                                <h3 style={{ color: '#fff', margin: 0 }}>Access Logs</h3>
+                                <h3 style={{ color: 'var(--color-heading)', margin: 0 }}>Access Logs</h3>
                                 <div className="flex gap-sm">
                                     <button
                                         onClick={() => setLogFilter('all')}
                                         className="btn"
                                         style={{
                                             padding: '0.5rem 1rem',
-                                            background: logFilter === 'all' ? 'var(--color-primary)' : 'transparent',
-                                            color: logFilter === 'all' ? '#000' : '#fff',
+                                            background: logFilter === 'all' ? 'var(--color-primary)' : 'rgba(255,255,255,0.1)',
+                                            color: logFilter === 'all' ? '#000' : 'var(--color-text)',
                                             border: '1px solid var(--color-primary)'
                                         }}
                                     >
@@ -462,7 +656,7 @@ const Dashboard = () => {
                                         style={{
                                             padding: '0.5rem 1rem',
                                             background: logFilter === 'security' ? '#dc2626' : 'transparent',
-                                            color: '#fff',
+                                            color: logFilter === 'security' ? '#fff' : 'var(--color-text)',
                                             border: '1px solid #dc2626'
                                         }}
                                     >
@@ -507,9 +701,9 @@ const Dashboard = () => {
                                         placeholder="Scan or Enter Keycard ID (e.g., KEY-8821)"
                                         style={{
                                             padding: '1rem',
-                                            background: '#0f172a',
+                                            background: 'var(--color-input-bg)',
                                             border: '1px solid var(--color-border)',
-                                            color: '#fff',
+                                            color: 'var(--color-text)',
                                             borderRadius: '8px',
                                             textAlign: 'center',
                                             fontSize: '1.2rem',
@@ -534,7 +728,7 @@ const Dashboard = () => {
                                         <div style={{
                                             background: simResult.type === 'warning' ? '#eab308' : (simResult.type === 'info' ? '#3b82f6' : '#22c55e'),
                                             padding: '0.5rem',
-                                            color: '#000',
+                                            color: '#fff',
                                             fontWeight: 'bold'
                                         }}>
                                             {simResult.message}
@@ -562,16 +756,17 @@ const Dashboard = () => {
                                                         boxShadow: '0 0 20px rgba(212, 175, 55, 0.3)'
                                                     }}>
                                                         <img
-                                                            src={simResult.detail.photo}
+                                                            src={simResult.detail.photo || 'https://via.placeholder.com/150?text=No+Photo'}
                                                             alt={simResult.detail.name}
                                                             loading="lazy"
                                                             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                            onError={(e) => { e.target.onerror = null; e.target.src = 'https://via.placeholder.com/150?text=No+Photo'; }}
                                                         />
                                                     </div>
 
                                                     {/* Details */}
                                                     <div style={{ textAlign: 'center' }}>
-                                                        <h2 style={{ color: '#fff', margin: '0 0 0.5rem', fontSize: '1.75rem' }}>{simResult.detail.name}</h2>
+                                                        <h2 style={{ color: 'var(--color-heading)', margin: '0 0 0.5rem', fontSize: '1.75rem' }}>{simResult.detail.name}</h2>
                                                         <div style={{ background: 'rgba(255,255,255,0.1)', display: 'inline-block', padding: '0.25rem 1rem', borderRadius: '99px', marginBottom: '1rem' }}>
                                                             <span className="text-gold" style={{ fontFamily: 'monospace', fontSize: '1.2rem', fontWeight: 'bold' }}>{simResult.detail.keycard}</span>
                                                         </div>
@@ -623,7 +818,7 @@ const Dashboard = () => {
                                 </div>
                                 <h3 style={{ color: '#fff', marginBottom: '1rem' }}>Akses Ditolak</h3>
                                 <p className="text-muted" style={{ marginBottom: '2rem', lineHeight: '1.6', fontSize: '1.1rem', fontWeight: 'bold' }}>
-                                    ANDA BELUM TERDAFTAR
+                                    {simResult.message || 'ANDA BELUM TERDAFTAR'}
                                 </p>
                                 <button
                                     className="btn"
@@ -699,11 +894,15 @@ const Dashboard = () => {
                                         </thead>
 
                                         <tbody>
-                                            {employees.filter(emp =>
-                                                emp.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                                                emp.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                                                emp.position.toLowerCase().includes(searchQuery.toLowerCase())
-                                            ).map(emp => (
+                                            {employees.filter(emp => {
+                                                // RBAC Filter
+                                                if (!isAuthorized && currentUser && emp.id !== currentUser.id) return false;
+
+                                                // Search Filter
+                                                return emp.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                                                    emp.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                                                    emp.position.toLowerCase().includes(searchQuery.toLowerCase())
+                                            }).map(emp => (
                                                 <tr key={emp.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                                                     <td style={{ padding: '1rem' }}>{emp.id}</td>
                                                     <td style={{ padding: '1rem', fontWeight: 'bold' }}>{emp.name}</td>
@@ -723,12 +922,12 @@ const Dashboard = () => {
                                                     </td>
                                                     {isAuthorized && (
                                                         <td style={{ padding: '1rem', textAlign: 'right', display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-                                                            <button onClick={() => openEditCardModal(emp)} style={{ background: 'transparent', border: 'none', color: '#38bdf8', cursor: 'pointer', padding: '0.5rem' }} title="Update Keycard">
+                                                            <button onClick={() => openEditCardModal(emp)} style={{ background: 'rgba(56, 189, 248, 0.2)', border: '1px solid rgba(56, 189, 248, 0.5)', borderRadius: '6px', color: '#38bdf8', cursor: 'pointer', padding: '0.5rem' }} title="Update Keycard">
                                                                 <CreditCard size={18} />
                                                             </button>
                                                             <button
                                                                 onClick={() => handleDeleteEmployee(emp.id)}
-                                                                style={{ background: 'transparent', border: 'none', color: '#f87171', cursor: 'pointer', padding: '0.5rem' }}
+                                                                style={{ background: 'rgba(248, 113, 113, 0.2)', border: '1px solid rgba(248, 113, 113, 0.5)', borderRadius: '6px', color: '#f87171', cursor: 'pointer', padding: '0.5rem' }}
                                                                 title="Hapus Data Karyawan"
                                                             >
                                                                 <Trash2 size={18} />
@@ -759,10 +958,10 @@ const Dashboard = () => {
                                                         <td style={{ padding: '1rem' }}>{log.location}</td>
                                                         <td style={{ padding: '1rem' }}>
                                                             <span style={{
-                                                                color: log.status === 'Granted' ? '#4ade80' : '#f87171',
+                                                                color: log.status === 'DENIED' ? '#f87171' : '#4ade80',
                                                                 fontWeight: 'bold'
                                                             }}>
-                                                                {log.status === 'Granted' ? 'ACCESS GRANTED' : 'ACCESS DENIED'}
+                                                                {log.status === 'DENIED' ? 'ACCESS DENIED' : 'ACCESS GRANTED'}
                                                             </span>
                                                         </td>
                                                     </tr>
@@ -836,7 +1035,7 @@ const Dashboard = () => {
                                                     justifyContent: 'center',
                                                     background: isOvertime ? 'rgba(59, 130, 246, 0.3)' : (isPresent ? (isLate ? '#eab308' : '#10b981') : 'rgba(255,255,255,0.05)'),
                                                     borderRadius: '8px',
-                                                    color: (isPresent || isOvertime) ? '#000' : '#fff',
+                                                    color: (isPresent || isOvertime) ? '#000' : 'var(--color-text)',
                                                     fontWeight: isPresent || isToday || isOvertime ? 'bold' : 'normal',
                                                     border: isToday ? '2px solid var(--color-primary)' : 'none',
                                                     position: 'relative',
@@ -875,9 +1074,9 @@ const Dashboard = () => {
                                             const lateRecords = currentEmployee?.lateRecords || [];
                                             const overtimeRecords = currentEmployee?.overtimeRecords || [];
 
-                                            // Working Days in Jan 2026 (Mon-Fri)
+                                            // Working Days in Jan 2026 (Mon-Fri) - Fixed to 20 days as requested
                                             const workingDays = [
-                                                1, 2, 5, 6, 7, 8, 9, 12, 13, 14, 15, 16, 19, 20, 21, 22, 23, 26, 27, 28, 29, 30
+                                                1, 2, 5, 6, 7, 8, 9, 12, 13, 14, 15, 16, 19, 20, 21, 22, 23, 26, 27, 28
                                             ];
 
                                             // Count on-time and late days
@@ -897,38 +1096,39 @@ const Dashboard = () => {
                                                 lateRecords.includes(dateStr)
                                             ).length;
 
-                                            // Count overtime days (weekends)
+                                            // Count overtime days (weekends or after hours)
                                             const overtimeDays = overtimeRecords.filter(d => d.startsWith('2026-01')).length;
 
                                             // Calculate weighted performance: on-time = 100%, late = 95%, overtime = +5% bonus each
                                             const totalScore = (ontimeDays * 1.0) + (lateDays * 0.95) + (overtimeDays * 0.05);
-                                            const percentage = Math.round((totalScore / workingDays.length) * 100);
+                                            const percentage = Math.min(100, Math.round((totalScore / 20) * 100)); // Divide by 20 days
 
                                             return (
-                                                <div style={{ position: 'relative', width: '200px', height: '200px', margin: '0 auto' }}>
+                                                <div style={{ position: 'relative', width: '200px', height: '200px', margin: '0 auto', zIndex: 1 }}>
                                                     <div style={{
                                                         width: '100%',
                                                         height: '100%',
                                                         borderRadius: '50%',
-                                                        background: `conic-gradient(#10b981 ${percentage}%, rgba(255,255,255,0.05) 0)`,
+                                                        background: `conic-gradient(#10b981 ${percentage * 3.6}deg, rgba(0, 0, 0, 0.05) 0deg)`, // Fixed conic-gradient syntax and color
                                                         display: 'flex',
                                                         alignItems: 'center',
-                                                        justifyContent: 'center'
+                                                        justifyContent: 'center',
+                                                        boxShadow: '0 0 20px rgba(16, 185, 129, 0.2)'
                                                     }}>
                                                         {/* Inner Circle (Donut hole) */}
                                                         <div style={{
                                                             width: '75%',
                                                             height: '75%',
                                                             borderRadius: '50%',
-                                                            background: '#1e293b', // Matches glass-card background
+                                                            background: '#fff', // Solid background for hole
                                                             display: 'flex',
                                                             flexDirection: 'column',
                                                             alignItems: 'center',
                                                             justifyContent: 'center',
-                                                            boxShadow: 'inset 0 0 10px rgba(0,0,0,0.5)'
+                                                            boxShadow: 'inset 0 0 10px rgba(0,0,0,0.05)'
                                                         }}>
-                                                            <span style={{ fontSize: '2rem', fontWeight: 'bold', color: '#fff' }}>{percentage}%</span>
-                                                            <span className="text-muted" style={{ fontSize: '0.7rem', textTransform: 'uppercase' }}>Hadir</span>
+                                                            <span style={{ fontSize: '2.5rem', fontWeight: 'bold', color: 'var(--color-heading)' }}>{percentage}%</span>
+                                                            <span className="text-muted" style={{ fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Performance</span>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -938,7 +1138,7 @@ const Dashboard = () => {
                                         <div style={{ marginTop: '2rem', textAlign: 'left' }}>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
                                                 <span className="text-muted">Total Hari Kerja</span>
-                                                <span style={{ color: '#fff' }}>22 Hari</span>
+                                                <span style={{ color: 'var(--color-heading)', fontWeight: 'bold' }}>20 Hari</span>
                                             </div>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
                                                 <span className="text-muted">Total Hadir</span>
@@ -994,16 +1194,16 @@ const Dashboard = () => {
                                         </div>
                                         <div className="form-group">
                                             <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }} className="text-muted">Nama Lengkap</label>
-                                            <input type="text" required value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--color-border)', background: '#0f172a', color: '#fff' }} className="w-full" />
+                                            <input type="text" required value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--color-border)', background: 'var(--color-input-bg)', color: 'var(--color-text)' }} className="w-full" />
                                         </div>
                                         <div className="form-group">
                                             <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }} className="text-muted">Posisi / Jabatan</label>
-                                            <input type="text" required value={formData.position} onChange={e => setFormData({ ...formData, position: e.target.value })} style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--color-border)', background: '#0f172a', color: '#fff' }} />
+                                            <input type="text" required value={formData.position} onChange={e => setFormData({ ...formData, position: e.target.value })} style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--color-border)', background: 'var(--color-input-bg)', color: 'var(--color-text)' }} />
                                         </div>
                                         <div className="grid grid-cols-2 gap-md">
                                             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                                                 <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }} className="text-muted">Divisi</label>
-                                                <input type="text" required value={formData.division} onChange={e => setFormData({ ...formData, division: e.target.value })} style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--color-border)', background: '#0f172a', color: '#fff' }} />
+                                                <input type="text" required value={formData.division} onChange={e => setFormData({ ...formData, division: e.target.value })} style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--color-border)', background: 'var(--color-input-bg)', color: 'var(--color-text)' }} />
                                             </div>
                                         </div>
                                         <button type="submit" className="btn btn-primary" style={{ marginTop: '1rem', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
@@ -1035,7 +1235,7 @@ const Dashboard = () => {
                                                     <select
                                                         value={formData.status || 'Active'}
                                                         onChange={e => setFormData({ ...formData, status: e.target.value })}
-                                                        style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--color-border)', background: '#0f172a', color: '#fff' }}
+                                                        style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--color-border)', background: 'var(--color-input-bg)', color: 'var(--color-text)' }}
                                                     >
                                                         <option value="Active">Active</option>
                                                         <option value="Inactive">Inactive</option>
@@ -1052,9 +1252,9 @@ const Dashboard = () => {
                                                     width: '100%',
                                                     padding: '1rem',
                                                     textAlign: 'center',
-                                                    background: '#000',
+                                                    background: 'var(--color-input-bg)',
                                                     border: '1px solid var(--color-border)',
-                                                    color: 'var(--color-primary)',
+                                                    color: 'var(--color-text)',
                                                     fontFamily: 'monospace',
                                                     fontSize: '1.2rem',
                                                     borderRadius: '8px',
@@ -1062,7 +1262,7 @@ const Dashboard = () => {
                                                 }}
                                             />
                                             <div className="flex gap-md">
-                                                <button type="button" onClick={editingEmployee ? resetModal : () => setAddStep(1)} className="btn" style={{ flex: 1, background: 'transparent', border: '1px solid var(--text-muted)', color: '#fff', fontWeight: 'bold' }}>{editingEmployee ? 'Batal' : 'Kembali'}</button>
+                                                <button type="button" onClick={editingEmployee ? resetModal : () => setAddStep(1)} className="btn" style={{ flex: 1, background: 'transparent', border: '1px solid var(--text-muted)', color: 'var(--text-muted)', fontWeight: 'bold' }}>{editingEmployee ? 'Batal' : 'Kembali'}</button>
                                                 <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>Validasi & Simpan</button>
                                             </div>
                                         </form>

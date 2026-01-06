@@ -1,55 +1,87 @@
 :root {
-  /* Brand Colors */
-  --color-primary: #D4AF37; /* Metallic Gold */
-  --color-primary-dark: #AA8C2C;
-  --color-secondary: #8B0000; /* Deep Red */
-  --color-secondary-dark: #5C0000;
-  
-  /* Neutral Colors */
-  --color-bg: #0F172A; /* Dark Slate Blue/Black */
-  --color-bg-card: #1E293B;
-  --color-text: #F8FAFC;
-  --color-text-muted: #94A3B8;
-  --color-border: #334155;
+  /* Kadin Indonesia Corporate Palette - Aesthetic Light Theme */
+  --color-bg: #FDFBF7;
+  /* Warm Cream White */
+
+  --color-card-bg: rgba(255, 255, 255, 0.7);
+  /* Frosted Glass White */
+  --color-sidebar-bg: rgba(255, 255, 255, 0.8);
+
+  /* Primary Gold Gradient */
+  --color-primary: #D4AF37;
+  --color-primary-hover: #E5C158;
+  --color-primary-gradient: linear-gradient(135deg, #D4AF37 0%, #F3D250 100%);
+
+  /* Accents */
+  --color-secondary: #DC2626;
+  /* Alert Red */
+  --color-success: #10B981;
+  /* Green */
+
+  /* Typography - Clean Slate */
+  --color-text: #1E293B;
+  /* Slate 800 */
+  --color-text-muted: #64748B;
+  /* Slate 500 */
+  --color-heading: #0F172A;
+  /* Slate 900 */
+  --color-input-bg: rgba(255, 255, 255, 0.8);
+
+  /* Borders */
+  --color-border: rgba(212, 175, 55, 0.2);
+  /* Soft Gold Border */
+  --color-border-hover: rgba(212, 175, 55, 0.5);
 
   /* Glassmorphism */
-  --glass-bg: rgba(30, 41, 59, 0.7);
-  --glass-border: 1px solid rgba(255, 255, 255, 0.1);
-  --glass-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+  --glass-bg: var(--color-card-bg);
+  --glass-border: 1px solid var(--color-border);
+  --glass-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.05), 0 0 0 1px rgba(255, 255, 255, 0.5) inset;
 
-  /* Typography */
+  /* Fonts */
+  --font-heading: 'Inter', system-ui, sans-serif;
   --font-sans: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
-  --font-heading: 'Outfit', sans-serif;
 
   /* Spacing & Radius */
   --p-sm: 0.5rem;
   --p-md: 1rem;
   --p-lg: 1.5rem;
   --p-xl: 2rem;
-  --radius-md: 8px;
-  --radius-lg: 12px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
   --radius-full: 9999px;
 
   /* Transitions */
-  --transition-normal: 0.3s ease;
+  --transition-normal: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 body {
-  background-color: var(--color-bg);
-  color: var(--color-text);
-  font-family: var(--font-sans);
   margin: 0;
-  padding: 0;
+  min-width: 320px;
+  min-height: 100vh;
   overflow-x: hidden;
-}
 
-a {
-  text-decoration: none;
-  color: inherit;
+  color: var(--color-text);
+  background-color: var(--color-bg);
+  /* Abstract Modern Background */
+  background-image:
+    radial-gradient(circle at 10% 20%, rgba(212, 175, 55, 0.1) 0%, transparent 40%),
+    radial-gradient(circle at 90% 80%, rgba(243, 210, 80, 0.15) 0%, transparent 40%),
+    linear-gradient(180deg, #FFFFFF 0%, #FDFBF7 100%);
+  background-attachment: fixed;
+
+  font-family: var(--font-sans);
+  line-height: 1.5;
+  font-weight: 400;
+  color-scheme: light;
 }
 
 ul {
   list-style: none;
   padding: 0;
   margin: 0;
+}
+
+a {
+  text-decoration: none;
+  color: inherit;
 }

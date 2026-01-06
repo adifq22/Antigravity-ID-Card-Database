@@ -35,16 +35,38 @@
     gap: var(--p-lg);
 }
 
+.w-full {
+    width: 100%;
+}
+
 .text-center {
     text-align: center;
+}
+
+.mb-md {
+    margin-bottom: var(--p-md);
+}
+
+.mb-lg {
+    margin-bottom: var(--p-lg);
 }
 
 .text-primary {
     color: var(--color-primary);
 }
 
+.text-muted {
+    color: var(--color-text-muted);
+}
+
 .text-gold {
+    background: var(--color-primary-gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    font-weight: 800;
     color: var(--color-primary);
+    /* Fallback */
 }
 
 /* Button Styles */
@@ -59,17 +81,20 @@
     transition: var(--transition-normal);
     border: none;
     font-family: var(--font-sans);
+    position: relative;
+    overflow: hidden;
 }
 
 .btn-primary {
-    background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark));
+    background: var(--color-primary-gradient);
     color: #fff;
     box-shadow: 0 4px 15px rgba(212, 175, 55, 0.3);
 }
 
 .btn-primary:hover {
     transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(212, 175, 55, 0.4);
+    box-shadow: 0 8px 25px rgba(212, 175, 55, 0.4);
+    filter: brightness(1.05);
 }
 
 .btn-outline {
@@ -85,10 +110,55 @@
 /* Glass Card */
 .glass-card {
     background: var(--glass-bg);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
     border: var(--glass-border);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
     border-radius: var(--radius-lg);
+    box-shadow: var(--glass-shadow);
+    transition: var(--transition-normal);
+    overflow: hidden;
+}
+
+.glass-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 20px 40px -10px rgba(212, 175, 55, 0.15), 0 0 0 1px rgba(212, 175, 55, 0.3) inset;
+    border-color: var(--color-border-hover);
+}
+
+/* Feature Card (Landing Page) */
+.feature-card {
+    padding: var(--p-lg);
+    transition: var(--transition-normal);
+    background: var(--color-card-bg);
+    /* MATCH LIGHT THEME */
+    border: var(--glass-border);
+}
+
+.feature-card:hover {
+    background: #fff;
+    border-color: var(--color-primary);
+    transform: translateY(-5px);
+    box-shadow: 0 10px 30px rgba(212, 175, 55, 0.2);
+}
+
+/* Form Elements */
+input,
+select {
+    background: var(--color-input-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: 0.75rem 1rem;
+    font-size: 1rem;
+    color: var(--color-text);
+    transition: all 0.2s;
+    outline: none;
+}
+
+input:focus,
+select:focus {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.15);
+    background: #fff;
 }
 
 /* Animations */
@@ -108,8 +178,48 @@
     animation: fadeIn 0.8s ease-out forwards;
 }
 
+/* Scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+}
 
-/* Grid & Layout */
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(212, 175, 55, 0.3);
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(212, 175, 55, 0.6);
+}
+
+/* --- Scroll Animations --- */
+.reveal {
+    opacity: 0;
+    transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.reveal-left {
+    transform: translateX(-100px);
+}
+
+.reveal-bottom {
+    transform: translateY(100px);
+}
+
+.reveal-right {
+    transform: translateX(100px);
+}
+
+.reveal.active {
+    opacity: 1;
+    transform: translate(0, 0);
+}
+
+/* Grid */
 .grid {
     display: grid;
     gap: var(--p-lg);
@@ -121,30 +231,4 @@
 
 .section {
     padding: 5rem 0;
-}
-
-.text-justify {
-    text-align: justify;
-}
-
-.mb-md {
-    margin-bottom: var(--p-md);
-}
-
-.mb-lg {
-    margin-bottom: var(--p-lg);
-}
-
-/* Card Hover Effect */
-.feature-card {
-    padding: var(--p-lg);
-    transition: var(--transition-normal);
-    background: rgba(30, 41, 59, 0.4);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.feature-card:hover {
-    background: rgba(30, 41, 59, 0.8);
-    border-color: var(--color-primary);
-    transform: translateY(-5px);
 }
