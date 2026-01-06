@@ -8,7 +8,8 @@ router.post('/scan', async (req, res) => {
     const { keycardId } = req.body;
     const now = new Date();
     const timeString = now.toTimeString().split(' ')[0]; // HH:MM:SS
-    const dateString = now.toISOString().split('T')[0]; // YYYY-MM-DD
+    // FIX: Use Local Date for YYYY-MM-DD to avoid timezone shifts (UTC vs Local)
+    const dateString = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
     try {
         // Find Employee by Keycard

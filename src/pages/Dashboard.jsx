@@ -141,30 +141,95 @@ const Dashboard = () => {
             return;
         }
 
-        // 1. TRY ONLINE API SCAN
+        // 1. TRY ONLINE API SCAN (Optimistic / Fire-and-Forget style)
+        let apiSuccess = false;
         try {
             const result = await api.scanCard(simKeycard);
-            if (result) {
-                // Success or Known Failure from Server
-                setSimResult({
-                    type: result.type || 'info', // success, info, warning, error
-                    message: result.message,
-                    detail: result.employee
-                });
+            if (result && result.success) {
+                apiSuccess = true;
+                // Note: We continue to Local Logic to ensure Frontend State identifies the user and updates the calendar immediately.
+                // The API response `employee` might not have the JSON arrays updated depending on backend implementation.
+            }
+        } catch (error) {
+            console.warn("Offline Scan / API Error", error);
+        }
 
-                // Add to Access Logs (Visual only)
-                const currentTime = new Date().toLocaleString('id-ID');
-                setAccessLogs(prev => [{
-                    id: Date.now(),
-                    timestamp: currentTime,
-                    employee: result.employee ? result.employee.name : 'Unknown',
-                    keycard: simKeycard,
-                    status: result.type === 'error' ? 'DENIED' : (result.type === 'info' && result.message.includes('Lembur') ? 'Overtime' : 'Granted'),
-                    location: 'Main Entrance'
-                }, ...prev]);
+        // 2. UNIVERSAL LOGIC (Run Locally to Update UI State Immediately)
+        // This ensures Calendar/Performance tabs update instantly.
 
-                // If error/denied, add to security alerts
-                if (result.type === 'error') {
+        // Find employee in local state
+        const employeeIndex = employees.findIndex(emp => emp.keycard === simKeycard);
+        const employee = employees[employeeIndex];
+
+        if (employee && employee.status === 'Active') {
+            // Record Attendance Logic
+            const now = new Date();
+            // FIX: Manual construction to guarantee YYYY-MM-DD format regardless of locale
+            const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+            const hours = now.getHours();
+            const minutes = now.getMinutes();
+            const msm = (hours * 60) + minutes; // Minutes Since Midnight
+
+            // Check if today is weekend (0 = Sunday, 6 = Saturday)
+            // Robust check using now.getDay() (Local Time)
+            const dayOfWeek = now.getDay();
+            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+            // Create a shallow copy of the employee to avoid direct state mutation
+            let updatedEmployee = {
+                ...employee,
+                attendance: [...(employee.attendance || [])],
+                lateRecords: [...(employee.lateRecords || [])],
+                overtimeRecords: [...(employee.overtimeRecords || [])]
+            };
+
+            // Determine Message & Type
+            let message = 'ACCESS GRANTED';
+            let type = 'success';
+            let isLate = false;
+            let logStatus = 'Granted';
+
+            if (isWeekend) {
+                // Weekend overtime
+                message = 'Lembur Tercatat - Terima kasih atas dedikasi Anda!';
+                type = 'info';
+                logStatus = 'Overtime';
+
+                if (!updatedEmployee.overtimeRecords.includes(today)) {
+                    updatedEmployee.overtimeRecords.push(today);
+                }
+            } else if (msm >= 1020) { // After 17:00 (5 PM)
+                // Weekday Overtime / Late Checkout
+                message = 'Lembur Hari Kerja Tercatat - Kerja bagus!';
+                type = 'info';
+                logStatus = 'Overtime';
+
+                if (!updatedEmployee.overtimeRecords.includes(today)) {
+                    updatedEmployee.overtimeRecords.push(today);
+                }
+            } else {
+                // Weekday logic
+                if (msm >= 360 && msm <= 515) {
+                    message = `Anda sukses Hadir Pada Jam ${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                    type = 'success';
+                    isLate = false;
+                    logStatus = 'Present';
+                } else if (msm >= 516 && msm <= 1019) {
+                    message = 'Anda Terlambat Hari ini, Tingkatkan Kualitas Performa Anda.';
+                    type = 'warning';
+                    isLate = true;
+                    logStatus = 'Late';
+                } else {
+                    // Unauthorized / Unknown Card
+                    setSimResult({
+                        type: 'error',
+                        message: employee ? 'KARTU TIDAK AKTIF' : 'ANDA BELUM TERDAFTAR',
+                        detail: null
+                    });
+
+                    const currentTime = new Date().toLocaleString('id-ID');
+
                     setSecurityAlerts(prev => [{
                         id: Date.now(),
                         timestamp: currentTime,
@@ -172,161 +237,19 @@ const Dashboard = () => {
                         type: 'Access Denied',
                         status: 'DENIED'
                     }, ...prev]);
-                }
 
-                setSimKeycard('');
-                return; // Exit if API worked
-            }
-        } catch (error) {
-            console.warn("Offline Scan Fallback Active", error);
-        }
-
-        // 2. OFFLINE FALLBACK (Local State Logic)
-        setTimeout(() => {
-            // Check against current state, not just mock file
-            const employeeIndex = employees.findIndex(emp => emp.keycard === simKeycard);
-            const employee = employees[employeeIndex];
-
-            if (employee && employee.status === 'Active') {
-                // Record Attendance Logic
-                const now = new Date();
-                // FIX: Manual construction to guarantee YYYY-MM-DD format regardless of locale
-                const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-
-                const hours = now.getHours();
-                const minutes = now.getMinutes();
-                const msm = (hours * 60) + minutes; // Minutes Since Midnight
-
-                // Check if today is weekend (0 = Sunday, 6 = Saturday)
-                const dayOfWeek = new Date(today).getDay();
-                const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-
-                // Create a shallow copy of the employee to avoid direct state mutation
-                let updatedEmployee = {
-                    ...employee,
-                    attendance: [...(employee.attendance || [])],
-                    lateRecords: [...(employee.lateRecords || [])],
-                    overtimeRecords: [...(employee.overtimeRecords || [])]
-                };
-
-                // Determine Message & Type
-                let message = 'ACCESS GRANTED';
-                let type = 'success';
-                let isLate = false;
-                let logStatus = 'Granted';
-
-                if (isWeekend) {
-                    // Weekend overtime
-                    message = 'Lembur Tercatat - Terima kasih atas dedikasi Anda!';
-                    type = 'info';
-                    logStatus = 'Overtime';
-
-                    if (!updatedEmployee.overtimeRecords.includes(today)) {
-                        updatedEmployee.overtimeRecords.push(today);
-                    }
-                } else if (msm >= 1020) { // After 17:00 (5 PM)
-                    // Weekday Overtime / Late Checkout
-                    message = 'Lembur Hari Kerja Tercatat - Kerja bagus!';
-                    type = 'info';
-                    logStatus = 'Overtime';
-
-                    if (!updatedEmployee.overtimeRecords.includes(today)) {
-                        updatedEmployee.overtimeRecords.push(today);
-                    }
-                } else {
-                    // Weekday logic
-                    if (msm >= 360 && msm <= 515) {
-                        message = `Anda sukses Hadir Pada Jam ${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-                        type = 'success';
-                        isLate = false;
-                        logStatus = 'Present';
-                    } else if (msm >= 516 && msm <= 1019) {
-                        message = 'Anda Terlambat Hari ini, Tingkatkan Kualitas Performa Anda.';
-                        type = 'warning';
-                        isLate = true;
-                        logStatus = 'Late';
-                    } else {
-                        message = 'Anda Berhasil Checkout Hari Ini';
-                        type = 'info';
-                        isLate = false;
-                        logStatus = 'Checkout';
-                    }
-
-                    const needsAttendanceRecord = !updatedEmployee.attendance.includes(today);
-                    const needsLateRecord = isLate && !updatedEmployee.lateRecords.includes(today);
-
-                    if (needsAttendanceRecord) {
-                        updatedEmployee.attendance.push(today);
-                    }
-                    if (needsLateRecord) {
-                        updatedEmployee.lateRecords.push(today);
-                    }
-                }
-
-                // Update State properly using functional update
-                setEmployees(prev => {
-                    const newEmployees = [...prev];
-                    newEmployees[employeeIndex] = updatedEmployee;
-                    return newEmployees;
-                });
-
-                setSimResult({
-                    type: type,
-                    message: message,
-                    detail: updatedEmployee
-                });
-
-                const currentTime = new Date().toLocaleString('id-ID');
-
-                // Log successful scan
-                setAccessLogs(prev => {
-                    const currentLogs = Array.isArray(prev) ? prev : [];
-                    return [{
-                        id: Date.now(),
-                        timestamp: currentTime,
-                        employee: updatedEmployee.name,
-                        keycard: simKeycard,
-                        status: logStatus,
-                        location: 'Main Entrance'
-                    }, ...currentLogs];
-                });
-
-            } else {
-                // Failed scan - log as security alert
-                const currentTime = new Date().toLocaleString('id-ID'); // Ambil waktu lagi
-
-                const alertEntry = {
-                    id: Date.now(),
-                    timestamp: currentTime,
-                    keycardAttempt: simKeycard,
-                    type: 'UNKNOWN_CARD',
-                    status: 'DENIED'
-                };
-
-                setSecurityAlerts(prev => [alertEntry, ...(Array.isArray(prev) ? prev : [])]);
-
-
-                setAccessLogs(prev => {
-                    const currentLogs = Array.isArray(prev) ? prev : [];
-                    return [{
+                    setAccessLogs(prev => [{
                         id: Date.now(),
                         timestamp: currentTime,
                         employee: 'Unknown',
                         keycard: simKeycard || 'Unknown',
                         status: 'DENIED',
                         location: 'Main Entrance'
-                    }, ...currentLogs];
-                });
-
-                setSimResult({
-                    type: 'error',
-                    message: 'Kartu Ini Belum Terdaftar',
-                    detail: null
-                });
+                    }, ...prev]);
+                }
+                setSimKeycard('');
             }
-            // Auto-clear the input after processing
-            setSimKeycard('');
-        }, 800);
+        }
     };
 
     const handleDeleteEmployee = async (id) => {
@@ -1287,6 +1210,16 @@ const Dashboard = () => {
                                                         const currentEmployee = employees.find(e => e.id === currentUser.id);
                                                         const attendance = currentEmployee?.attendance || [];
                                                         return attendance.filter(d => d.startsWith('2026-01')).length;
+                                                    })()} Hari
+                                                </span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                                                <span className="text-muted">Total Terlambat</span>
+                                                <span style={{ color: '#eab308', fontWeight: 'bold' }}>
+                                                    {(() => {
+                                                        const currentEmployee = employees.find(e => e.id === currentUser.id);
+                                                        const lateRecords = currentEmployee?.lateRecords || [];
+                                                        return lateRecords.filter(d => d.startsWith('2026-01')).length;
                                                     })()} Hari
                                                 </span>
                                             </div>
