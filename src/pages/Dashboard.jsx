@@ -902,8 +902,12 @@ const Dashboard = () => {
                                                 return emp.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                                                     emp.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
                                                     emp.position.toLowerCase().includes(searchQuery.toLowerCase())
+                                            }).sort((a, b) => {
+                                                const idA = parseInt(a.id.split('KDN-')[1]) || 0;
+                                                const idB = parseInt(b.id.split('KDN-')[1]) || 0;
+                                                return idA - idB;
                                             }).map(emp => (
-                                                <tr key={emp.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                                                <tr key={emp.id} className="table-row-hover" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                                                     <td style={{ padding: '1rem' }}>{emp.id}</td>
                                                     <td style={{ padding: '1rem', fontWeight: 'bold' }}>{emp.name}</td>
                                                     <td style={{ padding: '1rem' }}>{emp.position}</td>
@@ -1177,22 +1181,20 @@ const Dashboard = () => {
                                 border: editingEmployee ? '2px solid #d4af37' : '1px solid var(--color-border)',
                                 maxHeight: '90vh',
                                 overflowY: 'auto',
-                                background: editingEmployee
-                                    ? 'linear-gradient(135deg, #ffffff 0%, #fcf9f0 50%, #f1e4bc 100%)'
-                                    : 'var(--color-card-bg)',
-                                color: editingEmployee ? '#1a1a1a' : 'inherit',
-                                boxShadow: editingEmployee ? '0 20px 50px rgba(212, 175, 55, 0.4)' : 'var(--card-shadow)'
+                                background: 'linear-gradient(135deg, #ffffff 0%, #fcf9f0 50%, #f1e4bc 100%)',
+                                color: '#1a1a1a',
+                                boxShadow: '0 20px 50px rgba(212, 175, 55, 0.4)'
                             }}>
                                 <div className="flex justify-between items-center mb-lg">
                                     <h2 style={{
                                         margin: 0,
-                                        color: editingEmployee ? '#8b6914' : 'var(--color-primary)',
+                                        color: '#8b6914',
                                         fontWeight: '800',
                                         letterSpacing: '0.05em'
                                     }}>
                                         {editingEmployee ? 'UPDATE KEYCARD' : (addStep === 1 ? 'TAMBAH KARYAWAN' : 'VALIDASI RFID / KEYCARD')}
                                     </h2>
-                                    <button onClick={resetModal} style={{ background: 'transparent', border: 'none', color: editingEmployee ? '#1a1a1a' : '#fff', cursor: 'pointer' }}><X size={24} /></button>
+                                    <button onClick={resetModal} style={{ background: 'transparent', border: 'none', color: '#1a1a1a', cursor: 'pointer' }}><X size={24} /></button>
                                 </div>
 
                                 {/* STEP 1: BASIC INFO */}
@@ -1206,21 +1208,21 @@ const Dashboard = () => {
                                                 type="file"
                                                 accept="image/*"
                                                 onChange={handlePhotoUpload}
-                                                style={{ fontSize: '0.9rem', color: '#fff', width: '200px' }}
+                                                style={{ fontSize: '0.9rem', color: '#1a1a1a', width: '200px' }}
                                             />
                                         </div>
                                         <div className="form-group">
-                                            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }} className="text-muted">Nama Lengkap</label>
-                                            <input type="text" required value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--color-border)', background: 'var(--color-input-bg)', color: 'var(--color-text)' }} className="w-full" />
+                                            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: '#555', fontWeight: 'bold' }}>NAMA LENGKAP</label>
+                                            <input type="text" required value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid #d4af37', background: '#fff', color: '#1a1a1a' }} className="w-full" />
                                         </div>
                                         <div className="form-group">
-                                            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }} className="text-muted">Posisi / Jabatan</label>
-                                            <input type="text" required value={formData.position} onChange={e => setFormData({ ...formData, position: e.target.value })} style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--color-border)', background: 'var(--color-input-bg)', color: 'var(--color-text)' }} />
+                                            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: '#555', fontWeight: 'bold' }}>POSISI / JABATAN</label>
+                                            <input type="text" required value={formData.position} onChange={e => setFormData({ ...formData, position: e.target.value })} style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid #d4af37', background: '#fff', color: '#1a1a1a' }} />
                                         </div>
                                         <div className="grid grid-cols-2 gap-md">
                                             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                                                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }} className="text-muted">Divisi</label>
-                                                <input type="text" required value={formData.division} onChange={e => setFormData({ ...formData, division: e.target.value })} style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--color-border)', background: 'var(--color-input-bg)', color: 'var(--color-text)' }} />
+                                                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: '#555', fontWeight: 'bold' }}>DIVISI</label>
+                                                <input type="text" required value={formData.division} onChange={e => setFormData({ ...formData, division: e.target.value })} style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid #d4af37', background: '#fff', color: '#1a1a1a' }} />
                                             </div>
                                         </div>
                                         <button type="submit" className="btn btn-primary" style={{ marginTop: '1rem', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
@@ -1283,14 +1285,14 @@ const Dashboard = () => {
                                                     width: '100%',
                                                     padding: '1.25rem',
                                                     textAlign: 'center',
-                                                    background: editingEmployee ? '#fff' : 'var(--color-input-bg)',
-                                                    border: editingEmployee ? '2px solid #d4af37' : '1px solid var(--color-border)',
+                                                    background: '#fff',
+                                                    border: '2px solid #d4af37',
                                                     color: '#1a1a1a',
                                                     fontFamily: 'monospace',
                                                     fontSize: '1.5rem',
                                                     borderRadius: '12px',
                                                     marginBottom: '1.5rem',
-                                                    boxShadow: editingEmployee ? 'inset 0 2px 4px rgba(0,0,0,0.05)' : 'none',
+                                                    boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.05)',
                                                     outline: 'none'
                                                 }}
                                             />
