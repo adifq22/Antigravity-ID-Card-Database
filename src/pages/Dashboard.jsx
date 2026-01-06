@@ -176,12 +176,14 @@ const Dashboard = () => {
         // 2. OFFLINE FALLBACK (Local State Logic)
         setTimeout(() => {
             // Check against current state, not just mock file
-            const employee = employees.find(emp => emp.keycard === simKeycard);
+            const employeeIndex = employees.findIndex(emp => emp.keycard === simKeycard);
+            const employee = employees[employeeIndex];
 
             if (employee && employee.status === 'Active') {
                 // Record Attendance Logic
                 const now = new Date();
-                const today = now.toISOString().split('T')[0];
+                // FIX: Use local date string (YYYY-MM-DD) instead of UTC to fix timezone issues
+                const today = now.toLocaleDateString('en-CA');
                 const hours = now.getHours();
                 const minutes = now.getMinutes();
                 const msm = (hours * 60) + minutes; // Minutes Since Midnight
@@ -190,23 +192,19 @@ const Dashboard = () => {
                 const dayOfWeek = new Date(today).getDay();
                 const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
-                let updatedEmployee = { ...employee };
-
-                // Initialize arrays if needed
-                if (!employee.attendance) employee.attendance = [];
-                if (!employee.lateRecords) employee.lateRecords = [];
-                if (!employee.overtimeRecords) updatedEmployee.overtimeRecords = [];
+                // Create a shallow copy of the employee to avoid direct state mutation
+                let updatedEmployee = {
+                    ...employee,
+                    attendance: [...(employee.attendance || [])],
+                    lateRecords: [...(employee.lateRecords || [])],
+                    overtimeRecords: [...(employee.overtimeRecords || [])]
+                };
 
                 // Determine Message & Type
                 let message = 'ACCESS GRANTED';
                 let type = 'success';
                 let isLate = false;
-                let logStatus = 'Granted'; // Definisikan logStatus di sini agar tidak error ReferenceError
-
-                // Pastikan properti array ada, jika tidak ada gunakan array kosong []
-                const attendance = employee.attendance || [];
-                const lateRecords = employee.lateRecords || [];
-                const overtimeRecords = employee.overtimeRecords || [];
+                let logStatus = 'Granted';
 
                 if (isWeekend) {
                     // Weekend overtime
@@ -214,9 +212,8 @@ const Dashboard = () => {
                     type = 'info';
                     logStatus = 'Overtime';
 
-                    if (!overtimeRecords.includes(today)) {
-                        updatedEmployee.overtimeRecords = [...overtimeRecords, today];
-                        setEmployees(prev => prev.map(e => e.id === employee.id ? { ...e, ...updatedEmployee } : e));
+                    if (!updatedEmployee.overtimeRecords.includes(today)) {
+                        updatedEmployee.overtimeRecords.push(today);
                     }
                 } else if (msm >= 1020) { // After 17:00 (5 PM)
                     // Weekday Overtime / Late Checkout
@@ -224,9 +221,8 @@ const Dashboard = () => {
                     type = 'info';
                     logStatus = 'Overtime';
 
-                    if (!overtimeRecords.includes(today)) {
-                        updatedEmployee.overtimeRecords = [...overtimeRecords, today];
-                        setEmployees(prev => prev.map(e => e.id === employee.id ? { ...e, ...updatedEmployee } : e));
+                    if (!updatedEmployee.overtimeRecords.includes(today)) {
+                        updatedEmployee.overtimeRecords.push(today);
                     }
                 } else {
                     // Weekday logic
@@ -247,24 +243,23 @@ const Dashboard = () => {
                         logStatus = 'Checkout';
                     }
 
-                    // Perbaikan error .includes pada attendance dan lateRecords
-                    const needsAttendanceRecord = !attendance.includes(today);
-                    const needsLateRecord = isLate && !lateRecords.includes(today);
+                    const needsAttendanceRecord = !updatedEmployee.attendance.includes(today);
+                    const needsLateRecord = isLate && !updatedEmployee.lateRecords.includes(today);
 
-                    if (needsAttendanceRecord || needsLateRecord) {
-                        if (needsAttendanceRecord) {
-                            updatedEmployee.attendance = [...attendance, today];
-                        }
-
-                        if (needsLateRecord) {
-                            updatedEmployee.lateRecords = [...lateRecords, today];
-                        }
-
-                        // Gunakan spread operator agar data lama tidak hilang
-                        setEmployees(prev => prev.map(e => e.id === employee.id ? { ...e, ...updatedEmployee } : e));
+                    if (needsAttendanceRecord) {
+                        updatedEmployee.attendance.push(today);
+                    }
+                    if (needsLateRecord) {
+                        updatedEmployee.lateRecords.push(today);
                     }
                 }
 
+                // Update State properly using functional update
+                setEmployees(prev => {
+                    const newEmployees = [...prev];
+                    newEmployees[employeeIndex] = updatedEmployee;
+                    return newEmployees;
+                });
 
                 setSimResult({
                     type: type,
@@ -272,20 +267,15 @@ const Dashboard = () => {
                     detail: updatedEmployee
                 });
 
-                // --- PERBAIKAN DI SINI ---
-                // Kita ambil waktu saat ini dalam satu variabel agar konsisten
                 const currentTime = new Date().toLocaleString('id-ID');
 
                 // Log successful scan
                 setAccessLogs(prev => {
-                    // Pastikan prev selalu array
                     const currentLogs = Array.isArray(prev) ? prev : [];
-
-
                     return [{
                         id: Date.now(),
-                        timestamp: currentTime, // Gunakan variabel yang sudah pasti ada
-                        employee: updatedEmployee?.name || 'Unknown', // Gunakan tanda tanya (?) untuk jaga-jaga
+                        timestamp: currentTime,
+                        employee: updatedEmployee.name,
                         keycard: simKeycard,
                         status: logStatus,
                         location: 'Main Entrance'
@@ -514,13 +504,15 @@ const Dashboard = () => {
                         <Users size={20} style={{ marginRight: '10px' }} /> {isAuthorized ? 'Manajemen Karyawan' : 'Profil Saya'}
                     </button>
 
-                    <button
-                        className={`btn sidebar-link ${activeTab === 'logs' ? 'active' : ''}`}
-                        style={{ justifyContent: 'flex-start', background: 'transparent', border: 'none', textAlign: 'left', fontWeight: 'bold' }}
-                        onClick={() => setActiveTab('logs')}
-                    >
-                        <CreditCard size={20} style={{ marginRight: '10px' }} /> Access Logs
-                    </button>
+                    {isAuthorized && (
+                        <button
+                            className={`btn sidebar-link ${activeTab === 'logs' ? 'active' : ''}`}
+                            style={{ justifyContent: 'flex-start', background: 'transparent', border: 'none', textAlign: 'left', fontWeight: 'bold' }}
+                            onClick={() => setActiveTab('logs')}
+                        >
+                            <CreditCard size={20} style={{ marginRight: '10px' }} /> Access Logs
+                        </button>
+                    )}
 
                     <button
                         className={`btn sidebar-link ${activeTab === 'simulation' ? 'active' : ''}`}
@@ -588,7 +580,7 @@ const Dashboard = () => {
                                 style={{ background: 'transparent', border: 'none', color: 'var(--color-text)', marginLeft: '10px', outline: 'none' }}
                             />
                         </div>
-                        {currentUser && (
+                        {isAuthorized && (
                             <button
                                 onClick={() => {
                                     setActiveTab('logs');
