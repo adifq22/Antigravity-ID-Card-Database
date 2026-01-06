@@ -1169,13 +1169,30 @@ const Dashboard = () => {
                 {/* ADD EMPLOYEE MODAL (2 STEPS) */}
                 {
                     showAddModal && (
-                        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, backdropFilter: 'blur(5px)' }}>
-                            <div className="glass-card animate-fade-in" style={{ padding: '2rem', maxWidth: '500px', width: '100%', border: '1px solid var(--color-border)', maxHeight: '90vh', overflowY: 'auto' }}>
+                        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, backdropFilter: 'blur(10px)' }}>
+                            <div className="glass-card animate-fade-in" style={{
+                                padding: '2rem',
+                                maxWidth: '500px',
+                                width: '100%',
+                                border: editingEmployee ? '2px solid #d4af37' : '1px solid var(--color-border)',
+                                maxHeight: '90vh',
+                                overflowY: 'auto',
+                                background: editingEmployee
+                                    ? 'linear-gradient(135deg, #ffffff 0%, #fcf9f0 50%, #f1e4bc 100%)'
+                                    : 'var(--color-card-bg)',
+                                color: editingEmployee ? '#1a1a1a' : 'inherit',
+                                boxShadow: editingEmployee ? '0 20px 50px rgba(212, 175, 55, 0.4)' : 'var(--card-shadow)'
+                            }}>
                                 <div className="flex justify-between items-center mb-lg">
-                                    <h2 className="text-gold" style={{ margin: 0 }}>
-                                        {editingEmployee ? 'Update Keycard' : (addStep === 1 ? 'Tambah Karyawan' : 'Validasi RFID / Keycard')}
+                                    <h2 style={{
+                                        margin: 0,
+                                        color: editingEmployee ? '#8b6914' : 'var(--color-primary)',
+                                        fontWeight: '800',
+                                        letterSpacing: '0.05em'
+                                    }}>
+                                        {editingEmployee ? 'UPDATE KEYCARD' : (addStep === 1 ? 'TAMBAH KARYAWAN' : 'VALIDASI RFID / KEYCARD')}
                                     </h2>
-                                    <button onClick={resetModal} style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer' }}><X size={24} /></button>
+                                    <button onClick={resetModal} style={{ background: 'transparent', border: 'none', color: editingEmployee ? '#1a1a1a' : '#fff', cursor: 'pointer' }}><X size={24} /></button>
                                 </div>
 
                                 {/* STEP 1: BASIC INFO */}
@@ -1216,10 +1233,16 @@ const Dashboard = () => {
                                 {addStep === 2 && (
                                     <div style={{ textAlign: 'center' }}>
                                         {editingEmployee && (
-                                            <div style={{ marginBottom: '1.5rem', background: 'rgba(255,255,255,0.05)', padding: '1rem', borderRadius: '8px' }}>
-                                                <p className="text-muted" style={{ fontSize: '0.9rem' }}>Mengubah kartu untuk:</p>
-                                                <h3 style={{ margin: '0.5rem 0 0', color: 'var(--color-primary)' }}>{editingEmployee.name}</h3>
-                                                <p style={{ margin: 0, fontSize: '0.8rem' }}>Current: {editingEmployee.keycard}</p>
+                                            <div style={{
+                                                marginBottom: '1.5rem',
+                                                background: 'rgba(212, 175, 55, 0.1)',
+                                                padding: '1.5rem',
+                                                borderRadius: '12px',
+                                                border: '1px solid rgba(212, 175, 55, 0.3)'
+                                            }}>
+                                                <p style={{ color: '#555', fontSize: '0.9rem', marginBottom: '0.5rem', textTransform: 'uppercase', fontWeight: 'bold' }}>Mengubah kartu untuk:</p>
+                                                <h3 style={{ margin: '0', color: '#1a1a1a', fontSize: '1.5rem' }}>{editingEmployee.name}</h3>
+                                                <p style={{ margin: '0.25rem 0 0', fontSize: '0.85rem', color: '#d4af37', fontWeight: 'bold' }}>Kartu Saat Ini: {editingEmployee.keycard}</p>
                                             </div>
                                         )}
                                         <div style={{ margin: '2rem auto', width: '100px', height: '100px', border: '2px dashed var(--color-primary)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} className="animate-pulse">
@@ -1231,11 +1254,19 @@ const Dashboard = () => {
                                         <form onSubmit={handleScanSubmit}>
                                             {editingEmployee && (
                                                 <div className="form-group" style={{ marginBottom: '1.5rem', textAlign: 'left' }}>
-                                                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }} className="text-muted">Set Status</label>
+                                                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: '#555', fontWeight: 'bold' }}>SET STATUS AKUN</label>
                                                     <select
                                                         value={formData.status || 'Active'}
                                                         onChange={e => setFormData({ ...formData, status: e.target.value })}
-                                                        style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--color-border)', background: 'var(--color-input-bg)', color: 'var(--color-text)' }}
+                                                        style={{
+                                                            width: '100%',
+                                                            padding: '0.75rem',
+                                                            borderRadius: '8px',
+                                                            border: '1px solid #d4af37',
+                                                            background: '#fff',
+                                                            color: '#1a1a1a',
+                                                            fontWeight: 'bold'
+                                                        }}
                                                     >
                                                         <option value="Active">Active</option>
                                                         <option value="Inactive">Inactive</option>
@@ -1246,19 +1277,21 @@ const Dashboard = () => {
                                                 type="text"
                                                 value={scannedCardId}
                                                 onChange={e => setScannedCardId(e.target.value)}
-                                                placeholder="Waiting for input..."
+                                                placeholder="Menunggu Tempel Kartu..."
                                                 autoFocus
                                                 style={{
                                                     width: '100%',
-                                                    padding: '1rem',
+                                                    padding: '1.25rem',
                                                     textAlign: 'center',
-                                                    background: 'var(--color-input-bg)',
-                                                    border: '1px solid var(--color-border)',
-                                                    color: 'var(--color-text)',
+                                                    background: editingEmployee ? '#fff' : 'var(--color-input-bg)',
+                                                    border: editingEmployee ? '2px solid #d4af37' : '1px solid var(--color-border)',
+                                                    color: '#1a1a1a',
                                                     fontFamily: 'monospace',
-                                                    fontSize: '1.2rem',
-                                                    borderRadius: '8px',
-                                                    marginBottom: '1.5rem'
+                                                    fontSize: '1.5rem',
+                                                    borderRadius: '12px',
+                                                    marginBottom: '1.5rem',
+                                                    boxShadow: editingEmployee ? 'inset 0 2px 4px rgba(0,0,0,0.05)' : 'none',
+                                                    outline: 'none'
                                                 }}
                                             />
                                             <div className="flex gap-md">
